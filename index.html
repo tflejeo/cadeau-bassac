@@ -342,6 +342,8 @@ async function loadData(){
 
   appData.people.forEach(p=>{ if(!appData.contributors[p.id]) appData.contributors[p.id] = []; });
   appData.people.forEach(p=>{ if(!appData.gifts[p.id]) appData.gifts[p.id] = []; });
+  if(!appData.generalComments) appData.generalComments = {};
+  appData.people.forEach(p=>{ if(appData.generalComments[p.id] === undefined) appData.generalComments[p.id] = ''; });
 
   // migration : l'ancien système de votes (tableau de noms) devient un objet {votant: points}
   Object.values(appData.gifts).forEach(list=>{
@@ -535,6 +537,10 @@ function renderMain(){
 
     const participants = appData.contributors[activeTab] || [];
     const participating = participants.includes(identity);
+    const participantsText = isAdminSession
+      ? (participants.length ? `<span class="hint">Participent déjà (${participants.length}) : ${participants.map(escapeHtml).join(', ')}</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`)
+      : (participants.length ? `<span class="hint">${participants.length} participant${participants.length>1?'s':''} pour l'instant.</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`);
+    const generalComment = (appData.generalComments && appData.generalComments[activeTab]) || '';
 
     panelHtml = `
       <div class="panel">
@@ -544,8 +550,12 @@ function renderMain(){
           <button type="button" class="participate-btn ${participating?'joined':''}" id="participate-btn">
             ${participating ? '✅ Je participe au cadeau' : '🤝 Je souhaite participer au cadeau'}
           </button>
+          <div class="comment-block">
+            <span class="comment-label">📝 Note générale pour cet onglet (budget visé, consignes, etc.)</span>
+            <textarea id="general-comment-input" rows="2" placeholder="Ajouter une note générale…">${escapeHtml(generalComment)}</textarea>
+          </div>
           <div class="participants-list">
-            ${participants.length ? `<span class="hint">Participent déjà (${participants.length}) : ${participants.map(escapeHtml).join(', ')}</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`}
+            ${participantsText}
           </div>
         </div>
         <div class="gift-form">
@@ -644,6 +654,16 @@ function renderMain(){
       try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
     });
   });
+  const generalCommentInput = document.getElementById('general-comment-input');
+  if(generalCommentInput){
+    generalCommentInput.addEventListener('blur', async ()=>{
+      if(!appData.generalComments) appData.generalComments = {};
+      const val = generalCommentInput.value;
+      if(appData.generalComments[activeTab] === val) return;
+      appData.generalComments[activeTab] = val;
+      try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+    });
+  }
   document.getElementById('switch-identity').addEventListener('click', clearIdentity);
 }
 
@@ -809,6 +829,8 @@ function renderAdminModal(){
     appData.people.push({id:newId, name, type:'other', hiddenFrom:[]});
     appData.gifts[newId] = [];
     appData.contributors[newId] = [];
+    if(!appData.generalComments) appData.generalComments = {};
+    appData.generalComments[newId] = '';
     try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
     overlay.remove();
     renderAdminModal();
