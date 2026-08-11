@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cadeau d'anniversaires</title>
+<title>Cadeaux d'anniversaires</title>
 <style>
   :root{
     --ink:#1B2E28;
@@ -143,14 +143,52 @@
   .vote-hint{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;}
   .empty{color:var(--muted);font-size:13.5px;font-style:italic;padding:8px 0;}
 
-  .comment-block{margin-top:10px;}
-  .comment-label{font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:4px;display:block;}
-  .comment-block textarea{
+  .comment-label{font-size:11.5px;font-weight:700;color:var(--muted);margin:10px 0 4px;display:block;}
+
+  .thread-block{margin-top:10px;}
+  .thread-list{display:flex;flex-direction:column;gap:8px;margin-bottom:8px;}
+  .thread-msg{background:#fdfaf4;border-radius:8px;padding:8px 10px;}
+  .thread-meta{font-size:11px;color:var(--muted);margin-bottom:3px;}
+  .thread-meta strong{color:var(--ink);}
+  .thread-text{font-size:13.5px;color:var(--ink);line-height:1.4;white-space:pre-wrap;}
+  .thread-msg-actions{display:flex;gap:12px;margin-top:5px;}
+  .thread-msg-actions button{
+    background:none;border:none;padding:0;font-size:11.5px;font-weight:600;
+    color:var(--muted);cursor:pointer;text-decoration:underline;
+  }
+  .thread-msg-actions button.yes{color:var(--coral);}
+  .thread-edit-input{
+    width:100%;border:1.5px solid var(--paper-line);border-radius:8px;
+    padding:8px 9px;font-size:13.5px;font-family:inherit;color:var(--ink);
+    background:#fff;resize:vertical;min-height:40px;margin-top:2px;
+  }
+  .thread-edit-input + .thread-msg-actions button{
+    background:var(--ink);color:#fff;border-radius:6px;padding:6px 10px;text-decoration:none;
+  }
+  .thread-new{display:flex;flex-direction:column;gap:6px;}
+  .thread-new textarea{
     width:100%;border:1.5px solid var(--paper-line);border-radius:8px;
     padding:9px 10px;font-size:13.5px;font-family:inherit;color:var(--ink);
     background:#fdfaf4;resize:vertical;min-height:44px;
   }
-  .comment-read{font-size:13px;color:#5c6660;font-style:italic;background:#fdfaf4;border-radius:8px;padding:8px 10px;line-height:1.4;white-space:pre-wrap;}
+  .thread-post-btn{
+    align-self:flex-end;border:none;border-radius:8px;padding:8px 16px;
+    background:var(--ink);color:var(--paper);font-size:13px;font-weight:600;cursor:pointer;min-height:38px;
+  }
+
+  .amount-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;flex-wrap:wrap;}
+  .validate-label{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;}
+  .validate-label input{width:16px;height:16px;}
+  .amount-input{
+    flex:1;min-width:140px;border:1.5px solid var(--paper-line);border-radius:8px;
+    padding:8px 10px;font-size:13.5px;color:var(--ink);background:#fff;
+  }
+
+  .budget-summary{
+    background:#fdfaf4;border:1px dashed var(--sage);border-radius:10px;
+    padding:10px 12px;font-size:13px;color:var(--ink);margin-bottom:14px;line-height:1.5;
+  }
+  .budget-summary.muted{color:var(--muted);font-style:italic;border-color:var(--paper-line);}
 
   .participate-block{margin-bottom:18px;padding-bottom:16px;border-bottom:1px dashed var(--paper-line);}
   .participate-btn{
@@ -219,7 +257,7 @@
 <button class="admin-toggle" id="admin-toggle" title="Administration" aria-label="Administration">⚙</button>
 <div class="wrap">
   <div class="lights"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-  <h1>🎁 Cadeau d'anniversaires</h1>
+  <h1>🎁 Cadeaux d'anniversaires</h1>
   <div class="sub">Parcours les différents onglets pour dire si tu souhaites participer au cadeau, proposer des idées et voter.</div>
   <div id="app"><div class="loading">Chargement…</div></div>
 </div>
@@ -262,6 +300,8 @@ let activeTab = null;
 let isAdminSession = false;
 let pendingDeleteGiftId = null;
 let pendingDeleteTabId = null;
+let editingMsgKey = null;
+let pendingDeleteMsgKey = null;
 
 const el = document.getElementById('app');
 
@@ -342,15 +382,33 @@ async function loadData(){
 
   appData.people.forEach(p=>{ if(!appData.contributors[p.id]) appData.contributors[p.id] = []; });
   appData.people.forEach(p=>{ if(!appData.gifts[p.id]) appData.gifts[p.id] = []; });
-  if(!appData.generalComments) appData.generalComments = {};
-  appData.people.forEach(p=>{ if(appData.generalComments[p.id] === undefined) appData.generalComments[p.id] = ''; });
+
+  // migration : le commentaire général unique (texte) devient un fil de discussion (generalThreads)
+  if(!appData.generalThreads) appData.generalThreads = {};
+  appData.people.forEach(p=>{
+    if(!appData.generalThreads[p.id]) appData.generalThreads[p.id] = [];
+    const oldText = appData.generalComments && appData.generalComments[p.id];
+    if(oldText && typeof oldText === 'string' && oldText.trim()){
+      appData.generalThreads[p.id].push({id:uid(), text:oldText.trim(), author:'Ancienne note', createdAt: Date.now()});
+    }
+  });
+  delete appData.generalComments;
 
   // migration : l'ancien système de votes (tableau de noms) devient un objet {votant: points}
+  // + le commentaire unique par idée devient un fil de discussion + ajout montant/validation
   Object.values(appData.gifts).forEach(list=>{
     list.forEach(g=>{
       if(Array.isArray(g.votes)) g.votes = {};
       if(!g.votes) g.votes = {};
-      if(g.comment === undefined) g.comment = '';
+      if(!Array.isArray(g.comments)){
+        g.comments = [];
+        if(g.comment && typeof g.comment === 'string' && g.comment.trim()){
+          g.comments.push({id:uid(), text:g.comment.trim(), author:g.author||'Inconnu', createdAt: Date.now()});
+        }
+      }
+      delete g.comment;
+      if(g.amount === undefined) g.amount = null;
+      if(g.validated === undefined) g.validated = false;
     });
   });
 
@@ -403,6 +461,76 @@ async function clearIdentity(){
 
 function giftScore(g){
   return Object.values(g.votes||{}).reduce((s,v)=>s+v,0);
+}
+
+function formatDate(ts){
+  const d = new Date(ts);
+  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+}
+
+function formatEUR(n){
+  return n.toFixed(2).replace('.', ',') + ' €';
+}
+
+function getThread(kind, id){
+  if(kind === 'gift'){
+    const list = appData.gifts[activeTab] || [];
+    const gift = list.find(g=>g.id===id);
+    if(gift){ if(!gift.comments) gift.comments = []; return gift.comments; }
+    return null;
+  } else {
+    if(!appData.generalThreads) appData.generalThreads = {};
+    if(!appData.generalThreads[id]) appData.generalThreads[id] = [];
+    return appData.generalThreads[id];
+  }
+}
+
+function renderThread(kind, id){
+  const thread = (getThread(kind, id) || []).slice().sort((a,b)=> a.createdAt - b.createdAt);
+  const msgsHtml = thread.length ? thread.map(m=>{
+    const key = kind + ':' + id + ':' + m.id;
+    const canEdit = isAdminSession || m.author === identity;
+    const metaHtml = `<div class="thread-meta"><strong>${escapeHtml(m.author)}</strong> · ${formatDate(m.createdAt)}${m.editedAt ? ' (modifié)' : ''}</div>`;
+
+    if(editingMsgKey === key){
+      return `<div class="thread-msg">
+        ${metaHtml}
+        <textarea class="thread-edit-input" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}" rows="2">${escapeHtml(m.text)}</textarea>
+        <div class="thread-msg-actions">
+          <button type="button" data-action="save-edit-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">Enregistrer</button>
+          <button type="button" data-action="cancel-edit-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">Annuler</button>
+        </div>
+      </div>`;
+    }
+    let actionsHtml = '';
+    if(canEdit){
+      if(pendingDeleteMsgKey === key){
+        actionsHtml = `<div class="thread-msg-actions">
+          <button type="button" class="yes" data-action="confirm-del-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">Supprimer</button>
+          <button type="button" class="no" data-action="cancel-del-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">Annuler</button>
+        </div>`;
+      } else {
+        actionsHtml = `<div class="thread-msg-actions">
+          <button type="button" data-action="edit-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">✎ Modifier</button>
+          <button type="button" data-action="ask-del-msg" data-kind="${kind}" data-id="${escapeAttr(id)}" data-mid="${m.id}">🗑 Supprimer</button>
+        </div>`;
+      }
+    }
+    return `<div class="thread-msg">
+      ${metaHtml}
+      <div class="thread-text">${escapeHtml(m.text)}</div>
+      ${actionsHtml}
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:2px 0;">Aucun message pour l'instant.</div>`;
+
+  return `<div class="thread-block">
+    <span class="comment-label">💬 Discussion (${thread.length})</span>
+    <div class="thread-list">${msgsHtml}</div>
+    <div class="thread-new">
+      <textarea class="thread-input" data-kind="${kind}" data-id="${escapeAttr(id)}" rows="2" placeholder="Écrire un message…"></textarea>
+      <button type="button" class="thread-post-btn" data-kind="${kind}" data-id="${escapeAttr(id)}">Publier</button>
+    </div>
+  </div>`;
 }
 
 function roleText(type){
@@ -511,15 +639,7 @@ function renderMain(){
         }
       }
       const canEditComment = isAdminSession || g.author === identity;
-      const commentHtml = canEditComment
-        ? `<div class="comment-block">
-            <span class="comment-label">💬 Commentaire (lien, prix, remarque…)</span>
-            <textarea data-gid="${g.id}" class="comment-input" rows="2" placeholder="Ajouter un lien, un prix estimatif, une remarque…">${escapeHtml(g.comment||'')}</textarea>
-          </div>`
-        : (g.comment ? `<div class="comment-block">
-            <span class="comment-label">💬 Commentaire</span>
-            <div class="comment-read">${escapeHtml(g.comment)}</div>
-          </div>` : '');
+      const amountVal = (g.amount !== null && g.amount !== undefined) ? g.amount : '';
       return `<div class="gift">
         <div class="gift-main">
           <div class="txt">${escapeHtml(g.text)}<span class="author">proposé par ${escapeHtml(g.author)}</span></div>
@@ -531,7 +651,11 @@ function renderMain(){
           <button type="button" class="rank-btn r1 ${myRank===1?'active':''}" data-gid="${g.id}" data-rank="1">🥉 +1</button>
           <span class="score-badge">${score} pt${score>1?'s':''}</span>
         </div>
-        ${commentHtml}
+        <div class="amount-row">
+          <label class="validate-label"><input type="checkbox" class="validate-chk" data-gid="${g.id}" ${g.validated?'checked':''}/> ✅ Idée validée</label>
+          <input type="number" class="amount-input" data-gid="${g.id}" min="0" step="0.01" placeholder="Montant estimé (€, facultatif)" value="${amountVal}" />
+        </div>
+        ${renderThread('gift', g.id)}
       </div>`;
     }).join('') : `<div class="empty">Aucune idée pour le moment. Sois le premier !</div>`;
 
@@ -540,20 +664,25 @@ function renderMain(){
     const participantsText = isAdminSession
       ? (participants.length ? `<span class="hint">Participent déjà (${participants.length}) : ${participants.map(escapeHtml).join(', ')}</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`)
       : (participants.length ? `<span class="hint">${participants.length} participant${participants.length>1?'s':''} pour l'instant.</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`);
-    const generalComment = (appData.generalComments && appData.generalComments[activeTab]) || '';
+
+    const validatedGifts = (appData.gifts[activeTab]||[]).filter(g=>g.validated);
+    const totalAmount = validatedGifts.reduce((s,g)=> s + (typeof g.amount==='number' && !isNaN(g.amount) ? g.amount : 0), 0);
+    const missingAmountCount = validatedGifts.filter(g=> !(typeof g.amount==='number' && !isNaN(g.amount))).length;
+    const perPerson = participants.length > 0 ? totalAmount / participants.length : null;
+    const budgetHtml = validatedGifts.length
+      ? `<div class="budget-summary">💰 <strong>${formatEUR(totalAmount)}</strong> au total pour ${validatedGifts.length} idée${validatedGifts.length>1?'s':''} validée${validatedGifts.length>1?'s':''}${missingAmountCount ? ` <span class="hint">(montant non précisé pour ${missingAmountCount})</span>` : ''}${perPerson!==null ? ` · <strong>${formatEUR(perPerson)}</strong> / participant (${participants.length})` : ` <span class="hint">· pas encore de participant pour calculer la part de chacun</span>`}</div>`
+      : `<div class="budget-summary muted">💰 Aucune idée validée pour l'instant — le budget total s'affichera ici.</div>`;
 
     panelHtml = `
       <div class="panel">
         <h2 style="color:${color}">${escapeHtml(person.name)}</h2>
         <div class="role">${roleText(person.type)}</div>
+        ${budgetHtml}
         <div class="participate-block">
           <button type="button" class="participate-btn ${participating?'joined':''}" id="participate-btn">
             ${participating ? '✅ Je participe au cadeau' : '🤝 Je souhaite participer au cadeau'}
           </button>
-          <div class="comment-block">
-            <span class="comment-label">📝 Note générale pour cet onglet (budget visé, consignes, etc.)</span>
-            <textarea id="general-comment-input" rows="2" placeholder="Ajouter une note générale…">${escapeHtml(generalComment)}</textarea>
-          </div>
+          ${renderThread('general', activeTab)}
           <div class="participants-list">
             ${participantsText}
           </div>
@@ -577,7 +706,13 @@ function renderMain(){
   `;
 
   el.querySelectorAll('.tab').forEach(t=>{
-    t.addEventListener('click', ()=>{ activeTab = t.getAttribute('data-id'); pendingDeleteGiftId = null; render(); });
+    t.addEventListener('click', ()=>{
+      activeTab = t.getAttribute('data-id');
+      pendingDeleteGiftId = null;
+      editingMsgKey = null;
+      pendingDeleteMsgKey = null;
+      render();
+    });
   });
   const addBtn = document.getElementById('add-gift-btn');
   const giftInput = document.getElementById('gift-input');
@@ -624,7 +759,7 @@ function renderMain(){
       render();
     });
   });
-  el.querySelectorAll('[data-action]').forEach(btn=>{
+  el.querySelectorAll('[data-action="ask-del"], [data-action="cancel-del"], [data-action="confirm-del"]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const gid = btn.getAttribute('data-gid');
       const action = btn.getAttribute('data-action');
@@ -642,28 +777,90 @@ function renderMain(){
       }
     });
   });
-  el.querySelectorAll('.comment-input').forEach(ta=>{
-    ta.addEventListener('blur', async ()=>{
-      const gid = ta.getAttribute('data-gid');
-      const list = appData.gifts[activeTab];
-      const gift = list.find(g=>g.id===gid);
-      if(!gift) return;
-      const val = ta.value;
-      if(gift.comment === val) return;
-      gift.comment = val;
+  el.querySelectorAll('.validate-chk').forEach(chk=>{
+    chk.addEventListener('change', async ()=>{
+      const gid = chk.getAttribute('data-gid');
+      const gift = (appData.gifts[activeTab]||[]).find(g=>g.id===gid);
+      if(gift) gift.validated = chk.checked;
       try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
     });
   });
-  const generalCommentInput = document.getElementById('general-comment-input');
-  if(generalCommentInput){
-    generalCommentInput.addEventListener('blur', async ()=>{
-      if(!appData.generalComments) appData.generalComments = {};
-      const val = generalCommentInput.value;
-      if(appData.generalComments[activeTab] === val) return;
-      appData.generalComments[activeTab] = val;
+  el.querySelectorAll('.amount-input').forEach(inp=>{
+    inp.addEventListener('blur', async ()=>{
+      const gid = inp.getAttribute('data-gid');
+      const gift = (appData.gifts[activeTab]||[]).find(g=>g.id===gid);
+      if(gift){
+        const val = inp.value.trim();
+        const parsed = val === '' ? null : parseFloat(val);
+        gift.amount = (parsed !== null && isNaN(parsed)) ? null : parsed;
+      }
       try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
     });
-  }
+  });
+
+  el.querySelectorAll('.thread-post-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const kind = btn.getAttribute('data-kind');
+      const id = btn.getAttribute('data-id');
+      const ta = el.querySelector(`.thread-input[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`);
+      if(!ta) return;
+      const text = ta.value.trim();
+      if(!text) return;
+      const thread = getThread(kind, id);
+      if(!thread) return;
+      thread.push({id: uid(), text, author: identity, createdAt: Date.now()});
+      try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
+    });
+  });
+  el.querySelectorAll('[data-action="edit-msg"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editingMsgKey = btn.getAttribute('data-kind')+':'+btn.getAttribute('data-id')+':'+btn.getAttribute('data-mid');
+      render();
+    });
+  });
+  el.querySelectorAll('[data-action="cancel-edit-msg"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editingMsgKey = null; render(); });
+  });
+  el.querySelectorAll('[data-action="save-edit-msg"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const kind = btn.getAttribute('data-kind'), id = btn.getAttribute('data-id'), mid = btn.getAttribute('data-mid');
+      const thread = getThread(kind, id);
+      const msg = thread && thread.find(m=>m.id===mid);
+      if(msg){
+        const ta = el.querySelector(`.thread-edit-input[data-mid="${mid}"]`);
+        const val = ta ? ta.value.trim() : '';
+        if(val){ msg.text = val; msg.editedAt = Date.now(); }
+      }
+      editingMsgKey = null;
+      try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
+    });
+  });
+  el.querySelectorAll('[data-action="ask-del-msg"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      pendingDeleteMsgKey = btn.getAttribute('data-kind')+':'+btn.getAttribute('data-id')+':'+btn.getAttribute('data-mid');
+      render();
+    });
+  });
+  el.querySelectorAll('[data-action="cancel-del-msg"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ pendingDeleteMsgKey = null; render(); });
+  });
+  el.querySelectorAll('[data-action="confirm-del-msg"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const kind = btn.getAttribute('data-kind'), id = btn.getAttribute('data-id'), mid = btn.getAttribute('data-mid');
+      const thread = getThread(kind, id);
+      if(thread){
+        const idx = thread.findIndex(m=>m.id===mid);
+        if(idx>=0) thread.splice(idx,1);
+      }
+      pendingDeleteMsgKey = null;
+      try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
+    });
+  });
   document.getElementById('switch-identity').addEventListener('click', clearIdentity);
 }
 
@@ -829,8 +1026,8 @@ function renderAdminModal(){
     appData.people.push({id:newId, name, type:'other', hiddenFrom:[]});
     appData.gifts[newId] = [];
     appData.contributors[newId] = [];
-    if(!appData.generalComments) appData.generalComments = {};
-    appData.generalComments[newId] = '';
+    if(!appData.generalThreads) appData.generalThreads = {};
+    appData.generalThreads[newId] = [];
     try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
     overlay.remove();
     renderAdminModal();
