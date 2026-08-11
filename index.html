@@ -331,10 +331,12 @@ async function loadData(){
     return;
   }
   try{
-    const res = await fetch(DATA_PATH + '/latest', {
+    const res = await fetch(DATA_PATH + '/latest?t=' + Date.now(), {
+      cache: 'no-store',
       headers:{
         'X-Master-Key': JSONBIN_API_KEY,
-        'X-Bin-Meta': 'false'
+        'X-Bin-Meta': 'false',
+        'Cache-Control': 'no-cache'
       }
     });
     if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -429,10 +431,12 @@ async function saveData(){
   if(storageConfigError) return;
   const res = await fetch(DATA_PATH, {
     method:'PUT',
+    cache: 'no-store',
     headers:{
       'Content-Type':'application/json',
       'X-Master-Key': JSONBIN_API_KEY,
-      'X-Bin-Versioning': 'false'
+      'X-Bin-Versioning': 'false',
+      'Cache-Control': 'no-cache'
     },
     body: JSON.stringify(appData)
   });
@@ -701,6 +705,7 @@ function renderMain(){
     <div class="tabs">${tabsHtml}</div>
     ${panelHtml}
     <div class="footer-row">
+      <button class="link-btn" id="refresh-data">🔄 Recharger les données</button>
       <button class="link-btn" id="switch-identity">Changer d'identité (${escapeHtml(identity)})</button>
     </div>
   `;
@@ -862,6 +867,14 @@ function renderMain(){
     });
   });
   document.getElementById('switch-identity').addEventListener('click', clearIdentity);
+  document.getElementById('refresh-data').addEventListener('click', async ()=>{
+    const btn = document.getElementById('refresh-data');
+    btn.textContent = '⏳ Chargement…';
+    try{
+      await loadData();
+    }catch(e){ console.error('Erreur de rechargement', e); }
+    render();
+  });
 }
 
 function escapeHtml(s){
