@@ -738,10 +738,10 @@ function renderMain(){
             <input type="number" id="pledge-amount-input" min="0" step="0.01" placeholder="Montant (€)" value="${myPledge && typeof myPledge.amount==='number' ? myPledge.amount : ''}" />
           </div>
           ` : ''}
-          ${renderThread('general', activeTab)}
           <div class="participants-list">
             ${participantsText}
           </div>
+          ${renderThread('general', activeTab)}
         </div>
         <div class="gift-form">
           <input type="text" id="gift-input" placeholder="Proposer une idée…" maxlength="140" />
