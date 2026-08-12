@@ -213,6 +213,11 @@
     padding:13px;min-height:46px;cursor:pointer;margin-bottom:10px;
   }
   .participate-btn.joined{background:var(--sage);color:#fff;}
+  .pledge-block{margin-bottom:12px;}
+  .pledge-block input{
+    width:100%;border:1.5px solid var(--sage);border-radius:8px;
+    padding:10px 12px;font-size:15px;color:var(--ink);background:#fdfaf4;min-height:44px;
+  }
   .participants-list .hint{margin-top:0;}
 
   .footer-row{display:flex;justify-content:space-between;align-items:center;margin-top:20px;}
@@ -402,6 +407,18 @@ async function loadData(){
   appData.people.forEach(p=>{ if(!appData.contributors[p.id]) appData.contributors[p.id] = []; });
   appData.people.forEach(p=>{ if(!appData.gifts[p.id]) appData.gifts[p.id] = []; });
 
+  // migration : les participants (simples noms en texte) deviennent des objets {name, amount}
+  Object.keys(appData.contributors).forEach(pid=>{
+    appData.contributors[pid] = (appData.contributors[pid]||[]).map(entry=>{
+      if(typeof entry === 'string') return {name: entry, amount: null};
+      if(entry && typeof entry === 'object'){
+        if(entry.amount === undefined) entry.amount = null;
+        return entry;
+      }
+      return {name: String(entry), amount: null};
+    });
+  });
+
   // migration : le commentaire général unique (texte) devient un fil de discussion (generalThreads)
   if(!appData.generalThreads) appData.generalThreads = {};
   appData.people.forEach(p=>{
@@ -572,7 +589,7 @@ function knownIdentities(){
     list.forEach(g=>{ names.add(g.author); Object.keys(g.votes||{}).forEach(v=>names.add(v)); });
   });
   Object.values(appData.contributors||{}).forEach(list=>{
-    list.forEach(n=>names.add(n));
+    list.forEach(p=>names.add(p.name));
   });
   names.delete('guest');
   return Array.from(names);
@@ -682,10 +699,17 @@ function renderMain(){
     }).join('') : `<div class="empty">Aucune idée pour le moment. Sois le premier !</div>`;
 
     const participants = appData.contributors[activeTab] || [];
-    const participating = participants.includes(identity);
+    const myPledge = participants.find(p=>p.name===identity);
+    const participating = !!myPledge;
+    const totalPledged = participants.reduce((s,p)=> s + (typeof p.amount==='number' && !isNaN(p.amount) ? p.amount : 0), 0);
+    const pledgedCount = participants.filter(p=> typeof p.amount==='number' && !isNaN(p.amount)).length;
     const participantsText = isAdminSession
-      ? (participants.length ? `<span class="hint">Participent déjà (${participants.length}) : ${participants.map(escapeHtml).join(', ')}</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`)
-      : (participants.length ? `<span class="hint">${participants.length} participant${participants.length>1?'s':''} pour l'instant.</span>` : `<span class="hint">Personne ne s'est encore proposé.</span>`);
+      ? (participants.length
+          ? `<span class="hint">Participent déjà (${participants.length}) : ${participants.map(p=> escapeHtml(p.name) + (typeof p.amount==='number' && !isNaN(p.amount) ? ' ('+formatEUR(p.amount)+')' : ' (montant non précisé)')).join(', ')}${pledgedCount ? ` — total proposé : <strong>${formatEUR(totalPledged)}</strong>` : ''}</span>`
+          : `<span class="hint">Personne ne s'est encore proposé.</span>`)
+      : (participants.length
+          ? `<span class="hint">${participants.length} participant${participants.length>1?'s':''} pour l'instant${pledgedCount ? ` · <strong>${formatEUR(totalPledged)}</strong> proposés au total` : ''}.</span>`
+          : `<span class="hint">Personne ne s'est encore proposé.</span>`);
 
     const validatedGifts = (appData.gifts[activeTab]||[]).filter(g=>g.validated);
     const totalAmount = validatedGifts.reduce((s,g)=> s + (typeof g.amount==='number' && !isNaN(g.amount) ? g.amount : 0), 0);
@@ -708,6 +732,12 @@ function renderMain(){
           <button type="button" class="participate-btn ${participating?'joined':''}" id="participate-btn">
             ${participating ? '✅ Je participe au cadeau' : '🤝 Je souhaite participer au cadeau'}
           </button>
+          ${participating ? `
+          <div class="pledge-block">
+            <label class="comment-label">💶 Montant que tu es prêt à mettre (€)</label>
+            <input type="number" id="pledge-amount-input" min="0" step="0.01" placeholder="Montant (€)" value="${myPledge && typeof myPledge.amount==='number' ? myPledge.amount : ''}" />
+          </div>
+          ` : ''}
           ${renderThread('general', activeTab)}
           <div class="participants-list">
             ${participantsText}
@@ -763,10 +793,24 @@ function renderMain(){
     participateBtn.addEventListener('click', async ()=>{
       appData.contributors[activeTab] = appData.contributors[activeTab] || [];
       const list = appData.contributors[activeTab];
-      const i = list.indexOf(identity);
-      if(i>=0) list.splice(i,1); else list.push(identity);
+      const i = list.findIndex(p=>p.name===identity);
+      if(i>=0) list.splice(i,1); else list.push({name: identity, amount: null});
       try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
       render();
+    });
+  }
+  const pledgeInput = document.getElementById('pledge-amount-input');
+  if(pledgeInput){
+    pledgeInput.addEventListener('blur', async ()=>{
+      const list = appData.contributors[activeTab] || [];
+      const entry = list.find(p=>p.name===identity);
+      if(entry){
+        const val = pledgeInput.value.trim();
+        const parsed = val === '' ? null : parseFloat(val);
+        entry.amount = (parsed !== null && isNaN(parsed)) ? null : parsed;
+        try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+        render();
+      }
     });
   }
   el.querySelectorAll('.rank-btn').forEach(btn=>{
