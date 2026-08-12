@@ -85,6 +85,14 @@
     transition:opacity .15s, border-color .15s;
   }
   .tab.active{opacity:1;border-top-color:currentColor;border-right-color:currentColor;border-bottom-color:currentColor;}
+  .tab.tab-done{background:#eaf3ec;}
+  .tab-check{
+    position:absolute;top:-6px;right:-6px;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--sage);color:#fff;font-size:11px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
+  }
   .tab .badge{
     display:block;margin-top:3px;font-size:10.5px;font-weight:600;
     background:rgba(0,0,0,0.08);padding:1px 6px;border-radius:8px;
@@ -189,6 +197,14 @@
     padding:10px 12px;font-size:13px;color:var(--ink);margin-bottom:14px;line-height:1.5;
   }
   .budget-summary.muted{color:var(--muted);font-style:italic;border-color:var(--paper-line);}
+
+  .tab-validated-toggle{
+    display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);
+    background:#fff;border:1.5px solid var(--paper-line);border-radius:10px;
+    padding:10px 12px;margin-bottom:16px;cursor:pointer;
+  }
+  .tab-validated-toggle input{width:17px;height:17px;}
+  .tab-validated-toggle.checked{background:#eaf3ec;border-color:var(--sage);color:var(--sage);}
 
   .participate-block{margin-bottom:18px;padding-bottom:16px;border-bottom:1px dashed var(--paper-line);}
   .participate-btn{
@@ -356,9 +372,10 @@ async function loadData(){
     };
     return;
   }
-  // migration : s'assurer que chaque personne a bien un tableau hiddenFrom
+  // migration : s'assurer que chaque personne a bien un tableau hiddenFrom + un statut validated
   if(!appData.people) appData.people = [];
   appData.people.forEach(p=>{ if(!p.hiddenFrom) p.hiddenFrom = []; });
+  appData.people.forEach(p=>{ if(p.validated === undefined) p.validated = false; });
   if(appData.adminPin === undefined) appData.adminPin = null;
   if(!appData.contributors) appData.contributors = {};
   if(!appData.gifts) appData.gifts = {};
@@ -614,7 +631,8 @@ function renderMain(){
     const idx = appData.people.findIndex(x=>x.id===p.id);
     const color = ACCENTS[idx % ACCENTS.length];
     const count = (appData.gifts[p.id]||[]).length;
-    return `<div class="tab ${p.id===activeTab?'active':''}" style="color:${color}" data-id="${p.id}">
+    return `<div class="tab ${p.id===activeTab?'active':''} ${p.validated?'tab-done':''}" style="color:${color}" data-id="${p.id}">
+      ${p.validated ? '<span class="tab-check" title="Cadeau(x) validé(s)">✔</span>' : ''}
       ${escapeHtml(p.name)}<span class="badge">${count}</span>
     </div>`;
   }).join('');
@@ -682,6 +700,10 @@ function renderMain(){
         <h2 style="color:${color}">${escapeHtml(person.name)}</h2>
         <div class="role">${roleText(person.type)}</div>
         ${budgetHtml}
+        <label class="tab-validated-toggle ${person.validated?'checked':''}">
+          <input type="checkbox" id="tab-validated-chk" ${person.validated?'checked':''}/>
+          ✅ Cadeau(x) validé(s) — plus besoin de chercher d'autres idées
+        </label>
         <div class="participate-block">
           <button type="button" class="participate-btn ${participating?'joined':''}" id="participate-btn">
             ${participating ? '✅ Je participe au cadeau' : '🤝 Je souhaite participer au cadeau'}
@@ -791,6 +813,15 @@ function renderMain(){
       render();
     });
   });
+  const tabValidatedChk = document.getElementById('tab-validated-chk');
+  if(tabValidatedChk){
+    tabValidatedChk.addEventListener('change', async ()=>{
+      const person = appData.people.find(p=>p.id===activeTab);
+      if(person) person.validated = tabValidatedChk.checked;
+      try{ await saveData(); }catch(e){ console.error('Erreur de sauvegarde', e); }
+      render();
+    });
+  }
   el.querySelectorAll('.amount-input').forEach(inp=>{
     inp.addEventListener('blur', async ()=>{
       const gid = inp.getAttribute('data-gid');
@@ -1036,7 +1067,7 @@ function renderAdminModal(){
     const name = input.value.trim();
     if(!name) return;
     const newId = 'p' + uid();
-    appData.people.push({id:newId, name, type:'other', hiddenFrom:[]});
+    appData.people.push({id:newId, name, type:'other', hiddenFrom:[], validated:false});
     appData.gifts[newId] = [];
     appData.contributors[newId] = [];
     if(!appData.generalThreads) appData.generalThreads = {};
